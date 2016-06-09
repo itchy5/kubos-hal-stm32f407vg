@@ -38,9 +38,12 @@
   */
 
 /* Includes ------------------------------------------------------------------*/
-#include "kubos-hal/I2C.h" /* functions header */
-#include "I2C.h"
+
 #include "stm32f4xx_it.h"
+
+#include "../../../examples/kubos-location-demo/yotta_modules/kubos-hal/kubos-hal/I2C.h" /* functions header */
+#include "../../../examples/kubos-location-demo/yotta_modules/kubos-hal-stm32f4/kubos-hal-stm32f4/I2C.h"
+#include "../../../examples/kubos-location-demo/yotta_modules/stm32cubef4/stm32cubef4/stm32f4xx_hal_i2c.h"
 
 /** @addtogroup STM32F4xx_HAL_Examples
   * @{

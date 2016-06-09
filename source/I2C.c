@@ -28,12 +28,6 @@
 I2C_HandleTypeDef I2cHandle;
 
 /* static functions */
-//static HAL_StatusTypeDef K_I2C_MasterTransmit_TXE(I2C_HandleTypeDef *hi2c, QueueHandle_t tx_queue);
-//static HAL_StatusTypeDef K_I2C_MasterTransmit_BTF(I2C_HandleTypeDef *hi2c, QueueHandle_t tx_queue);
-
-//static HAL_StatusTypeDef K_I2C_MasterReceive_RXNE(I2C_HandleTypeDef *hi2c, QueueHandle_t rx_queue);
-//static HAL_StatusTypeDef K_I2C_MasterReceive_BTF(I2C_HandleTypeDef *hi2c, QueueHandle_t rx_queue);
-
 
 void kprv_i2c_dev_init(KI2CNum i2c)
 {
@@ -71,17 +65,54 @@ void kprv_i2c_dev_init(KI2CNum i2c)
 
 void HAL_I2C_MspInit(I2C_HandleTypeDef *hi2c)
 {
+	GPIO_InitTypeDef  GPIO_InitStruct;
 
-	I2Cx_CLK_ENABLE();
-	I2Cx_SDA_GPIO_CLK_ENABLE();
-	I2Cx_SCL_GPIO_CLK_ENABLE();
+	  /*##-1- Enable GPIO Clocks #################################################*/
+	  /* Enable GPIO TX/RX clock */
+	  I2Cx_SCL_GPIO_CLK_ENABLE();
+	  I2Cx_SDA_GPIO_CLK_ENABLE();
 
-	k_gpio_write(I2Cx_SCL_PIN, ENABLE);
-	k_gpio_write(I2Cx_SDA_PIN, ENABLE);
+	  /*##-2- Configure peripheral GPIO ##########################################*/
+	  /* I2C TX GPIO pin configuration  */
+	  GPIO_InitStruct.Pin       = I2Cx_SCL_PIN;
+	  GPIO_InitStruct.Mode      = GPIO_MODE_AF_OD;
+	  GPIO_InitStruct.Pull      = GPIO_PULLUP;
+	  GPIO_InitStruct.Speed     = GPIO_SPEED_FAST;
+	  GPIO_InitStruct.Alternate = I2Cx_SCL_AF;
+	  HAL_GPIO_Init(I2Cx_SCL_GPIO_PORT, &GPIO_InitStruct);
 
-    /* enable interrupts */
-    __HAL_I2C_ENABLE_IT(&I2cHandle, I2C_IT_EVT | I2C_IT_ERR);
+	  /* I2C RX GPIO pin configuration  */
+	  GPIO_InitStruct.Pin = I2Cx_SDA_PIN;
+	  GPIO_InitStruct.Alternate = I2Cx_SDA_AF;
+	  HAL_GPIO_Init(I2Cx_SDA_GPIO_PORT, &GPIO_InitStruct);
 
+	  /*##-3- Enable I2C peripherals Clock #######################################*/
+	  /* Enable I2C1 clock */
+	  I2Cx_CLK_ENABLE();
+
+	  /*##-4- Configure the NVIC for I2C #########################################*/
+	  /* NVIC for I2C1 */
+	  HAL_NVIC_SetPriority(I2Cx_ER_IRQn, 1, 0);
+	  HAL_NVIC_EnableIRQ(I2Cx_ER_IRQn);
+	  HAL_NVIC_SetPriority(I2Cx_EV_IRQn, 2, 0);
+	  HAL_NVIC_EnableIRQ(I2Cx_EV_IRQn);
+}
+
+void HAL_I2C_MspDeInit(I2C_HandleTypeDef *hi2c)
+{
+  /*##-1- Reset peripherals ##################################################*/
+  I2Cx_FORCE_RESET();
+  I2Cx_RELEASE_RESET();
+
+  /*##-2- Disable peripherals and GPIO Clocks ################################*/
+  /* Configure I2C Tx as alternate function  */
+  HAL_GPIO_DeInit(I2Cx_SCL_GPIO_PORT, I2Cx_SCL_PIN);
+  /* Configure I2C Rx as alternate function  */
+  HAL_GPIO_DeInit(I2Cx_SDA_GPIO_PORT, I2Cx_SDA_PIN);
+
+  /*##-3- Disable the NVIC for I2C ###########################################*/
+  HAL_NVIC_DisableIRQ(I2Cx_ER_IRQn);
+  HAL_NVIC_DisableIRQ(I2Cx_EV_IRQn);
 }
 
 
@@ -139,23 +170,6 @@ int kprv_i2c_get_error()
 		return 0;
 	else
 		return -1;
-}
-
-
-
-/**
-  * @brief This function is called to increment  a global variable "uwTick"
-  *        used as application time base.
-  * @note In the default implementation, this variable is incremented each 1ms
-  *       in Systick ISR.
- * @note This function is declared as __weak to be overwritten in case of other
-  *      implementations in user file.
-  * @retval None
-  */
-void HAL_IncTick(void)
-{
-	/* FRTOS tick */
-	//xTaskIncrementTick();
 }
 
 /**
@@ -358,14 +372,14 @@ void K_HAL_I2C_EV_IRQHandler(I2C_HandleTypeDef *hi2c, KI2CNum i2c)
 
 HAL_StatusTypeDef K_I2C_MasterTransmit_TXE(I2C_HandleTypeDef *hi2c, QueueHandle_t tx_queue)
 {
-	uint16_t* DRptr;
+	uint16_t DR;
 	BaseType_t xHigherPriorityTaskWoken;
 
 	xHigherPriorityTaskWoken = pdFALSE;
 
   // Write data to DR
-  xQueueReceiveFromISR( tx_queue, ( void * ) &DRptr, &xHigherPriorityTaskWoken);
-  hi2c->Instance->DR = *DRptr;
+  xQueueReceiveFromISR( tx_queue, ( void * ) &DR, &xHigherPriorityTaskWoken);
+  hi2c->Instance->DR = DR;
 
   if(uxQueueMessagesWaiting(tx_queue) == 0)
   {
@@ -378,7 +392,7 @@ HAL_StatusTypeDef K_I2C_MasterTransmit_TXE(I2C_HandleTypeDef *hi2c, QueueHandle_
 
 HAL_StatusTypeDef K_I2C_MasterTransmit_BTF(I2C_HandleTypeDef *hi2c, QueueHandle_t tx_queue)
 {
-	uint16_t* DRptr;
+	uint16_t DR;
 	BaseType_t xHigherPriorityTaskWoken;
 
 	xHigherPriorityTaskWoken = pdFALSE;
@@ -386,8 +400,8 @@ HAL_StatusTypeDef K_I2C_MasterTransmit_BTF(I2C_HandleTypeDef *hi2c, QueueHandle_
   if(uxQueueMessagesWaiting(tx_queue) != 0)
   {
     // Write data to DR
-	xQueueReceiveFromISR( tx_queue, ( void * ) &DRptr, &xHigherPriorityTaskWoken);
-    hi2c->Instance->DR = *DRptr;
+	xQueueReceiveFromISR( tx_queue, ( void * ) &DR, &xHigherPriorityTaskWoken);
+    hi2c->Instance->DR = DR;
   }
   else
   {
@@ -421,7 +435,7 @@ HAL_StatusTypeDef K_I2C_MasterTransmit_BTF(I2C_HandleTypeDef *hi2c, QueueHandle_
 HAL_StatusTypeDef K_I2C_MasterReceive_RXNE(I2C_HandleTypeDef *hi2c, QueueHandle_t rx_queue)
 {
   uint32_t tmp = 0;
-  uint16_t* DRptr;
+  uint16_t DR;
   BaseType_t xHigherPriorityTaskWoken;
 
   xHigherPriorityTaskWoken = pdFALSE;
@@ -430,8 +444,8 @@ HAL_StatusTypeDef K_I2C_MasterReceive_RXNE(I2C_HandleTypeDef *hi2c, QueueHandle_
   if(tmp > 3)
   {
     /* Read data from DR */
-	  *DRptr = hi2c->Instance->DR;
-	  xQueueSendToBackFromISR( rx_queue, &DRptr, &xHigherPriorityTaskWoken );
+	  DR = hi2c->Instance->DR;
+	  xQueueSendToBackFromISR( rx_queue, ( void * ) &DR, &xHigherPriorityTaskWoken );
   }
   else if((tmp == 2) || (tmp == 3))
   {
@@ -444,8 +458,8 @@ HAL_StatusTypeDef K_I2C_MasterReceive_RXNE(I2C_HandleTypeDef *hi2c, QueueHandle_
     __HAL_I2C_DISABLE_IT(hi2c, I2C_IT_EVT | I2C_IT_BUF | I2C_IT_ERR);
 
     /* Read data from DR */
-    *DRptr = hi2c->Instance->DR;
-    xQueueSendToBackFromISR( rx_queue, &DRptr, &xHigherPriorityTaskWoken );
+    DR = hi2c->Instance->DR;
+    xQueueSendToBackFromISR( rx_queue, ( void * ) &DR, &xHigherPriorityTaskWoken );
 
     /* Wait until BUSY flag is reset */
     if(I2C_WaitOnFlagUntilTimeout(hi2c, I2C_FLAG_BUSY, SET, I2C_TIMEOUT_FLAG) != HAL_OK)
@@ -475,7 +489,7 @@ HAL_StatusTypeDef K_I2C_MasterReceive_RXNE(I2C_HandleTypeDef *hi2c, QueueHandle_
 
 HAL_StatusTypeDef K_I2C_MasterReceive_BTF(I2C_HandleTypeDef *hi2c, QueueHandle_t rx_queue)
 {
-	uint16_t* DRptr;
+	uint16_t DR;
 	BaseType_t xHigherPriorityTaskWoken;
 
 	xHigherPriorityTaskWoken = pdFALSE;
@@ -486,18 +500,18 @@ HAL_StatusTypeDef K_I2C_MasterReceive_BTF(I2C_HandleTypeDef *hi2c, QueueHandle_t
     hi2c->Instance->CR1 &= ~I2C_CR1_ACK;
 
     /* Read data from DR */
-    *DRptr = hi2c->Instance->DR;
-    xQueueSendToBackFromISR( rx_queue, &DRptr, &xHigherPriorityTaskWoken );
+    DR = hi2c->Instance->DR;
+    xQueueSendToBackFromISR( rx_queue, ( void * ) &DR, &xHigherPriorityTaskWoken );
   }
   else if(uxQueueMessagesWaiting(rx_queue) == 2)
   {
     /* Read data from DR */
-	*DRptr = hi2c->Instance->DR;
-	xQueueSendToBackFromISR( rx_queue, &DRptr, &xHigherPriorityTaskWoken );
+	DR = hi2c->Instance->DR;
+	xQueueSendToBackFromISR( rx_queue, ( void * ) &DR, &xHigherPriorityTaskWoken );
 
     /* Read data from DR */
-    *DRptr = hi2c->Instance->DR;
-    xQueueSendToBackFromISR( rx_queue, &DRptr, &xHigherPriorityTaskWoken );
+    DR = hi2c->Instance->DR;
+    xQueueSendToBackFromISR( rx_queue, ( void * ) &DR, &xHigherPriorityTaskWoken );
 
     /* Disable EVT and ERR interrupt */
 
@@ -522,8 +536,8 @@ HAL_StatusTypeDef K_I2C_MasterReceive_BTF(I2C_HandleTypeDef *hi2c, QueueHandle_t
   else
   {
     /* Read data from DR */
-    *DRptr = hi2c->Instance->DR;
-    xQueueSendToBackFromISR( rx_queue, &DRptr, &xHigherPriorityTaskWoken );
+    DR = hi2c->Instance->DR;
+    xQueueSendToBackFromISR( rx_queue, ( void * ) &DR, &xHigherPriorityTaskWoken );
   }
 
   return HAL_OK;
