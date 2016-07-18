@@ -25,6 +25,10 @@
 #include "kubos-hal-stm32f4/stm32f4_gpio.h"
 #include "stm32cubef4/stm32f4xx_hal_uart.h"
 
+#include <csp/drivers/usart.h>
+
+
+
 static inline USART_TypeDef *uart_dev(KUARTNum uart)
 {
     switch (uart) {
@@ -229,7 +233,18 @@ static inline void uart_irq_handler(KUARTNum uart)
     if (__GET_FLAG(dev, USART_SR_RXNE) )
     {
         char c = dev->DR;
-        xQueueSendToBackFromISR(k_uart->rx_queue, (void *) &c, &task_woken);
+
+        /* if using CSP over uart */
+        if(usart_callback != NULL)
+        {
+            /* use callback */
+            usart_callback((uint8_t*) &c, 1, &task_woken);
+        }
+        else
+        {
+            xQueueSendToBackFromISR(k_uart->rx_queue, (void *) &c, &task_woken);
+        }
+
         if (task_woken != pdFALSE) {
             portYIELD();
         }
